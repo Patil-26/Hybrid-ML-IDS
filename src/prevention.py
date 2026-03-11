@@ -1,44 +1,43 @@
 import os
 
-BLACKLIST_FILE = "blacklist.txt"
+# Directory for logs
+LOG_DIR = "logs"
+
+# File where blocked IPs will be stored
+BLACKLIST_FILE = os.path.join(LOG_DIR, "blacklist.txt")
 
 
-def initialize_blacklist():
-    """
-    Creates blacklist file if it doesn't exist
-    """
+def ensure_log_directory():
+    """Ensure logs directory exists."""
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
+
+def load_blocked_ips():
+    """Load already blocked IPs from blacklist file."""
+    ensure_log_directory()
+
     if not os.path.exists(BLACKLIST_FILE):
-        with open(BLACKLIST_FILE, "w") as f:
-            pass
-
-
-def is_blocked(ip):
-    """
-    Checks if an IP is already blocked
-    """
-    if not os.path.exists(BLACKLIST_FILE):
-        return False
+        open(BLACKLIST_FILE, "w").close()
 
     with open(BLACKLIST_FILE, "r") as f:
-        blocked_ips = f.read().splitlines()
+        blocked_ips = set(line.strip() for line in f if line.strip())
 
-    return ip in blocked_ips
+    return blocked_ips
 
 
 def block_ip(ip):
-    """
-    Adds malicious IP to blacklist
-    """
-    if not is_blocked(ip):
-        with open(BLACKLIST_FILE, "a") as f:
-            f.write(ip + "\n")
+    """Block a malicious IP address."""
+    ensure_log_directory()
 
-        print(f"[PREVENTION] Blocked IP: {ip}")
-        return "blocked"
+    blocked_ips = load_blocked_ips()
 
-    else:
-        print(f"[PREVENTION] IP already blocked: {ip}")
+    if ip in blocked_ips:
+        print(f"[INFO] IP already blocked: {ip}")
         return "already_blocked"
-    
-if __name__ == "__main__":
-    initialize_blacklist()
+
+    with open(BLACKLIST_FILE, "a") as f:
+        f.write(ip + "\n")
+
+    print(f"[ALERT] Blocked IP: {ip}")
+    return "blocked"

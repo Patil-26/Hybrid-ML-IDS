@@ -36,3 +36,14 @@ def load_and_preprocess_data(filepath):
 
     print("Preprocessing complete.")
     return X, y
+
+def preprocess_input(df):
+    """
+    Preprocess real-time packet data
+    to match the format used during training
+    """
+
+    # Example preprocessing (adjust if needed)
+    df.fillna(0, inplace=True)
+
+    return df
