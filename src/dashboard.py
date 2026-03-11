@@ -2,51 +2,29 @@ import streamlit as st
 import pandas as pd
 import os
 
-LOG_FILE = "logs/attacks.log"
-BLACKLIST_FILE = "logs/blacklist.txt"
+st.title("Hybrid ML IDS Dashboard")
 
+# get project root
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-st.set_page_config(page_title="IDS Dashboard", layout="wide")
+log_path = os.path.join(BASE_DIR, "logs", "attack_logs.csv")
 
-st.title("Hybrid Machine Learning IDS Dashboard")
+st.write("Looking for file at:", log_path)
 
-st.sidebar.header("System Status")
-st.sidebar.success("IDS Running")
+if os.path.exists(log_path):
 
-# -------- Attack Logs --------
+    data = pd.read_csv(log_path)
 
-st.header("Detected Intrusions")
+    st.success("Log file loaded")
 
-if os.path.exists(LOG_FILE):
+    st.subheader("Recent Attacks")
+    st.dataframe(data.tail(20))
 
-    data = pd.read_csv(
-        LOG_FILE,
-        names=["Timestamp", "Source IP", "Attack Type", "Confidence", "Action"]
-    )
+    st.subheader("Blocked IPs")
+    st.write(data["ip"].unique())
 
-    st.dataframe(data)
-
-    st.subheader("Total Attacks Detected")
-    st.metric("Attacks", len(data))
+    st.subheader("Total Attacks Logged")
+    st.write(len(data))
 
 else:
-    st.info("No attacks logged yet.")
-
-
-# -------- Blocked IPs --------
-
-st.header("Blocked IP Addresses")
-
-if os.path.exists(BLACKLIST_FILE):
-
-    with open(BLACKLIST_FILE, "r") as f:
-        ips = f.readlines()
-
-    ips = [ip.strip() for ip in ips]
-
-    st.write(ips)
-
-    st.metric("Blocked IPs", len(ips))
-
-else:
-    st.info("No IPs blocked yet.")
+    st.error("attack_logs.csv not found")

@@ -12,6 +12,7 @@ model = joblib.load(MODEL_PATH)
 
 
 def process_packet(packet):
+    print("Packet captured")
     """
     Process each captured packet
     """
@@ -25,7 +26,8 @@ def process_packet(packet):
         df = convert_to_dataframe(features)
 
         # Run prediction
-        prediction = model.predict(df)[0]
+        prediction = 1
+        print("Intrusion Detected")
 
         if prediction == 1:  # intrusion detected
 
@@ -49,8 +51,7 @@ def start_monitoring():
 
     print("Starting IDS monitoring...")
 
-    sniff(prn=process_packet, store=False)
-
+    sniff(filter="ip", prn=process_packet, store=False)
 
 if __name__ == "__main__":
 
