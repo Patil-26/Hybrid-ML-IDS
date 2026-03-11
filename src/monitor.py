@@ -1,61 +1,65 @@
-from scapy.all import sniff
 import joblib
-
-from feature_engineer import extract_features, convert_to_dataframe
-from prevention import block_ip, initialize_blacklist
+import pandas as pd
+from scapy.all import sniff, IP
+from preprocessing import preprocess_input
 from logger import log_attack, initialize_log
+from prevention import block_ip
+from traffic_analyzer import analyze_traffic
 
+print("Starting IDS monitor...")
 
-# Load trained ML model
-MODEL_PATH = "models/best_model.pkl"
-model = joblib.load(MODEL_PATH)
+# initialize log file
+initialize_log()
+
+# load trained model
+model = joblib.load("models/best_model.pkl")
+
+print("Model loaded successfully")
 
 
 def process_packet(packet):
-    print("Packet captured")
-    """
-    Process each captured packet
-    """
-
     try:
 
-        # Extract features
-        features = extract_features(packet)
+        if packet.haslayer(IP):
 
-        # Convert to dataframe
-        df = convert_to_dataframe(features)
+            src_ip = packet[IP].src
 
-        # Run prediction
-        prediction = 1
-        print("Intrusion Detected")
+            # 1️⃣ Traffic behavior analysis
+            attack_type = analyze_traffic(src_ip)
 
-        if prediction == 1:  # intrusion detected
+            if attack_type == "dos_attack":
+                print(f"[ALERT] DoS attack detected from {src_ip}")
 
-            # Get source IP
-            src_ip = packet[0][1].src if packet.haslayer("IP") else "unknown"
+                block_ip(src_ip)
+                log_attack(src_ip, "dos_attack", 1.0, "blocked")
 
-            # Prevention action
-            action = block_ip(src_ip)
+                return
 
-            # Log attack
-            log_attack(src_ip, "intrusion", 1.0, action)
+            # 2️⃣ ML-based detection
+
+            features = {
+                "duration": 0,
+                "src_bytes": len(packet),
+                "dst_bytes": len(packet),
+                "count": 1
+            }
+
+            df = pd.DataFrame([features])
+
+            processed = preprocess_input(df)
+
+            prediction = model.predict(processed)[0]
+
+            if prediction == 1:
+
+                print(f"[ALERT] Intrusion detected from {src_ip}")
+
+                block_ip(src_ip)
+                log_attack(src_ip, "intrusion", 1.0, "blocked")
 
     except Exception as e:
-        pass
+        print("Error processing packet:", e)
 
 
-def start_monitoring():
-    """
-    Start network monitoring
-    """
-
-    print("Starting IDS monitoring...")
-
-    sniff(filter="ip", prn=process_packet, store=False)
-
-if __name__ == "__main__":
-
-    initialize_log()
-    initialize_blacklist()
-
-    start_monitoring()
+# start packet capture
+sniff(prn=process_packet, store=False)
