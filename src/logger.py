@@ -1,40 +1,27 @@
-import csv
 import os
+import csv
 from datetime import datetime
 
 LOG_FILE = "logs/attack_logs.csv"
 
 
 def initialize_log():
+    """Create log file with header if it doesn't exist"""
     if not os.path.exists(LOG_FILE):
-        with open(LOG_FILE, mode='w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([
-                "timestamp",
-                "source_ip",
-                "prediction",
-                "confidence",
-                "action"
-            ])
+        with open(LOG_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["timestamp", "ip", "attack_type", "confidence", "action"])
 
 
-def log_attack(source_ip, prediction, confidence, action):
+def log_attack(ip, attack_type, confidence, action):
+    """Write attack to log file"""
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(LOG_FILE, mode='a', newline='') as file:
-        writer = csv.writer(file)
+    with open(LOG_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
         writer.writerow([
-            timestamp,
-            source_ip,
-            prediction,
-            round(confidence, 4),
+            datetime.now(),
+            ip,
+            attack_type,
+            confidence,
             action
         ])
-
-    print(f"[ALERT] {timestamp} | {source_ip} | {prediction} | action={action}")
-
-
-# this runs only when the file is executed directly
-if __name__ == "__main__":
-    initialize_log()
