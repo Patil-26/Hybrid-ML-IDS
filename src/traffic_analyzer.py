@@ -9,7 +9,8 @@ PACKET_THRESHOLD = 100
 TIME_WINDOW = 5  # seconds
 
 
-def analyze_traffic(ip):
+def analyze_traffic(ip, packet_length):
+
     now = time.time()
 
     # add current packet time
@@ -20,8 +21,18 @@ def analyze_traffic(ip):
         t for t in traffic_data[ip] if now - t <= TIME_WINDOW
     ]
 
-    # check packet rate
-    if len(traffic_data[ip]) > PACKET_THRESHOLD:
-        return "dos_attack"
+    packet_count = len(traffic_data[ip])
 
-    return None
+    # feature dictionary for ML model
+    features = {
+        "src_bytes": packet_length,
+        "dst_bytes": 0,
+        "count": packet_count,
+        "srv_count": packet_count
+    }
+
+    # simple DoS detection logic
+    if packet_count > PACKET_THRESHOLD:
+        return features, "dos_attack"
+
+    return features, None
