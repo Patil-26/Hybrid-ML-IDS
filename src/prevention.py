@@ -1,20 +1,29 @@
+"""
+prevention.py
+Handles IP blocking for detected attackers.
+Maintains a blacklist file to prevent duplicate blocking
+and persist blocked IPs across sessions.
+"""
+
 import os
 
-# Directory for logs
-LOG_DIR = "logs"
-
-# File where blocked IPs will be stored
+# ─── Paths ────────────────────────────────────────────────────────────
+BASE_DIR       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR        = os.path.join(BASE_DIR, "logs")
 BLACKLIST_FILE = os.path.join(LOG_DIR, "blacklist.txt")
 
 
 def ensure_log_directory():
-    """Ensure logs directory exists."""
+    """Create logs directory if it doesn't exist."""
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
 
 
 def load_blocked_ips():
-    """Load already blocked IPs from blacklist file."""
+    """
+    Load the set of already blocked IP addresses from the blacklist file.
+    Returns an empty set if the file doesn't exist yet.
+    """
     ensure_log_directory()
 
     if not os.path.exists(BLACKLIST_FILE):
@@ -27,7 +36,11 @@ def load_blocked_ips():
 
 
 def block_ip(ip):
-    """Block a malicious IP address."""
+    """
+    Block a malicious IP address by adding it to the blacklist file.
+    Skips if the IP is already blocked.
+    Returns action taken: 'blocked' or 'already_blocked'.
+    """
     ensure_log_directory()
 
     blocked_ips = load_blocked_ips()
@@ -39,5 +52,5 @@ def block_ip(ip):
     with open(BLACKLIST_FILE, "a") as f:
         f.write(ip + "\n")
 
-    print(f"[ALERT] Blocked IP: {ip}")
+    print(f"[BLOCKED] {ip}")
     return "blocked"
