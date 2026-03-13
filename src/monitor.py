@@ -7,17 +7,24 @@ from traffic_analyzer import analyze_traffic
 from logger import initialize_log, log_attack
 from prevention import block_ip
 
-# Fix path regardless of where you run from
+# ─── Paths ────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "best_model.pkl")
 
-# Load trained model
-model = joblib.load(MODEL_PATH)
+# ─── Load Weighted Ensemble Model ─────────────────────────────────────
+if not os.path.exists(MODEL_PATH):
+    print("[ERROR] No trained model found.")
+    print("        Please run: python3 src/evaluation.py first")
+    exit(1)
 
-# Initialize log file with headers if not exists
+model = joblib.load(MODEL_PATH)
+print(f"[INFO] Weighted Ensemble model loaded from {MODEL_PATH}")
+
+# ─── Initialize Log File ──────────────────────────────────────────────
 initialize_log()
 
 
+# ─── Process Each Packet ──────────────────────────────────────────────
 def process_packet(packet):
     try:
         if packet.haslayer(IP):
@@ -25,40 +32,43 @@ def process_packet(packet):
             src_ip = packet[IP].src
             packet_length = len(packet)
 
-            # Analyze traffic → get features + attack type
+            # Step 1 — Analyze traffic, get features + attack type
             features, attack_type = analyze_traffic(src_ip, packet_length)
 
-            # Preprocess → get 41-column feature vector
-            processed = preprocess_input(features)
+            # Step 2 — Preprocess into 41-column feature vector
+            feature_vector = preprocess_input(features)
 
-            # ML model prediction
-            prediction = model.predict(processed)[0]
+            # Step 3 — Weighted ensemble prediction
+            prediction = model.predict(feature_vector)[0]
 
-            # Confidence score
-            confidence = round(model.predict_proba(processed)[0].max(), 4)
+            # Step 4 — Confidence score (probability of predicted class)
+            confidence = round(model.predict_proba(feature_vector)[0].max(), 4)
 
-            # If attack detected
+            # Step 5 — Respond based on prediction
             if prediction == 1:
 
                 attack_label = attack_type if attack_type else "intrusion"
 
-                print(f"[ALERT] Attack detected from {src_ip} | Type: {attack_label} | Confidence: {confidence}")
+                print(f"[ALERT] Attack from {src_ip} | Type: {attack_label} | Confidence: {confidence}")
 
-                # Block and log
+                # Block IP and log attack
                 action = block_ip(src_ip)
                 log_attack(src_ip, attack_label, confidence, action)
 
             else:
-                print(f"[OK] Normal traffic from {src_ip} | Confidence: {confidence}")
+                print(f"[OK]    Normal traffic from {src_ip} | Confidence: {confidence}")
 
     except Exception as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] Failed to process packet: {e}")
 
 
+# ─── Start Monitoring ─────────────────────────────────────────────────
 def start_monitoring():
-    print("=" * 50)
-    print("  Hybrid ML-IDS — Real-Time Monitoring Active")
-    print("=" * 50)
+    print("\n" + "=" * 50)
+    print("   Hybrid ML-IDS — Real-Time Monitoring Active")
+    print("   Model  : Weighted Soft Voting Ensemble")
+    print("   RF: 0.6 | SVM: 0.2 | LR: 0.2")
+    print("=" * 50 + "\n")
     sniff(prn=process_packet, store=False)
 
 
