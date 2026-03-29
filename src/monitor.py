@@ -11,6 +11,7 @@ from scapy.all import sniff, IP
 
 from preprocessing import preprocess_input
 from traffic_analyzer import analyze_traffic
+from feature_engineer import extract_features
 from logger import initialize_log, log_attack
 from prevention import block_ip
 
@@ -41,22 +42,37 @@ def process_packet(packet):
         if packet.haslayer(IP):
 
             src_ip        = packet[IP].src
+            dst_ip        = packet[IP].dst
             packet_length = len(packet)
 
-            # Step 1 — Analyze traffic, get features + rule-based detection
-            features, attack_type = analyze_traffic(src_ip, packet_length)
+            # Step 1 — Extract rich features directly from packet headers
+            packet_features = extract_features(packet)
 
-            # Step 2 — Preprocess into 41-column feature vector
+            # Step 2 — Analyze traffic patterns over sliding time window
+            # Pass service, dst_ip and flag for richer rate-based features
+            features, attack_type = analyze_traffic(
+                ip            = src_ip,
+                packet_length = packet_length,
+                service       = packet_features.get("service", 0),
+                dst_ip        = dst_ip,
+                flag          = packet_features.get("flag", 0)
+            )
+
+            # Step 3 — Merge packet-level features into analyzer features
+            # packet_features override analyzer defaults where available
+            features.update(packet_features)
+
+            # Step 4 — Preprocess into 41-column feature vector
             feature_vector = preprocess_input(features)
 
-            # Step 3 — Weighted ensemble prediction
+            # Step 5 — Weighted ensemble prediction
             prediction = model.predict(feature_vector)[0]
 
-            # Step 4 — Confidence score (max probability across classes)
+            # Step 6 — Confidence score (max probability across classes)
             confidence = round(model.predict_proba(feature_vector)[0].max(), 4)
 
-            # Step 5 — Trigger if ML model OR rule-based detection fires
-            # Rule-based (DoS threshold) acts as safety net for sparse features
+            # Step 7 — Trigger if ML model OR rule-based detection fires
+            # Rule-based DoS threshold acts as safety net for sparse features
             if prediction == 1 or attack_type is not None:
 
                 attack_label = attack_type if attack_type else "ml_intrusion"
