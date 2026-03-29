@@ -12,9 +12,10 @@ st.set_page_config(
 )
 
 # ─── Paths ────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG_PATH = os.path.join(BASE_DIR, "logs", "attack_logs.csv")
-EVAL_PATH = os.path.join(BASE_DIR, "logs", "evaluation_results.json")
+BASE_DIR        = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_PATH        = os.path.join(BASE_DIR, "logs", "attack_logs.csv")
+EVAL_PATH       = os.path.join(BASE_DIR, "logs", "evaluation_results.json")
+IMPORTANCE_PATH = os.path.join(BASE_DIR, "logs", "plots", "feature_importance.json")
 
 # ─── Header ───────────────────────────────────────────────────────────
 st.title("Hybrid ML Intrusion Detection System")
@@ -67,7 +68,7 @@ if os.path.exists(LOG_PATH):
             "action":      "Action Taken"
         })
 
-        st.dataframe(display_data, width="stretch", hide_index=True, height=800)
+        st.dataframe(display_data, width="stretch", hide_index=True, height=600)
 
         st.divider()
 
@@ -159,6 +160,32 @@ if os.path.exists(EVAL_PATH):
 
     st.divider()
 
+    # ── Feature Importance ──
+    st.subheader("Feature Importance — Random Forest")
+    st.markdown("Which of the 41 NSL-KDD features matter most for detecting attacks:")
+
+    if os.path.exists(IMPORTANCE_PATH):
+        with open(IMPORTANCE_PATH, "r") as f:
+            imp_data = json.load(f)
+
+        imp_df = pd.DataFrame({
+            "Feature":          imp_data["features"],
+            "Importance Score": imp_data["importances"]
+        }).sort_values("Importance Score", ascending=False)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.dataframe(imp_df, width="stretch", hide_index=True)
+
+        with col2:
+            st.bar_chart(imp_df.set_index("Feature")["Importance Score"])
+
+    else:
+        st.info("Run evaluation.py to generate feature importance data.")
+
+    st.divider()
+
     # ── Individual Model Performance Table ──
     st.subheader("Individual Model Performance")
     st.markdown("Detailed breakdown of each model's performance on the test dataset:")
@@ -166,18 +193,18 @@ if os.path.exists(EVAL_PATH):
     individual_rows = []
     for r in eval_results:
         individual_rows.append({
-            "Model":           r["model"],
-            "Accuracy":        f"{r['accuracy']*100:.2f}%",
-            "Precision":       f"{r['precision']*100:.2f}%",
-            "Recall":          f"{r['recall']*100:.2f}%",
-            "F1 Score":        f"{r['f1_score']*100:.2f}%",
-            "Attacks Caught":  f"{r['tp']:,}",
-            "Normal Passed":   f"{r['tn']:,}",
-            "False Alarms":    f"{r['fp']:,}",
-            "Attacks Missed":  f"{r['fn']:,}",
+            "Model":          r["model"],
+            "Accuracy":       f"{r['accuracy']*100:.2f}%",
+            "Precision":      f"{r['precision']*100:.2f}%",
+            "Recall":         f"{r['recall']*100:.2f}%",
+            "F1 Score":       f"{r['f1_score']*100:.2f}%",
+            "Attacks Caught": f"{r['tp']:,}",
+            "Normal Passed":  f"{r['tn']:,}",
+            "False Alarms":   f"{r['fp']:,}",
+            "Attacks Missed": f"{r['fn']:,}",
         })
 
-    st.dataframe(pd.DataFrame(individual_rows), width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(individual_rows), width="stretch", hide_index=True, height=250)
 
     st.divider()
 
