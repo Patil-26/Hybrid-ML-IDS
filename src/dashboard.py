@@ -19,7 +19,7 @@ IMPORTANCE_PATH = os.path.join(BASE_DIR, "logs", "plots", "feature_importance.js
 
 # ─── Header ───────────────────────────────────────────────────────────
 st.title("Hybrid ML Intrusion Detection System")
-st.markdown("This dashboard monitors your network in real time and shows all detected threats, blocked attackers, and how well the system is performing.")
+st.markdown("This dashboard monitors your network in real time and shows all detected threats, warnings, blocked attackers, and how well the system is performing.")
 st.caption("Dashboard auto-refreshes every 5 seconds")
 st.divider()
 
@@ -32,39 +32,65 @@ if os.path.exists(LOG_PATH):
 
     data = pd.read_csv(LOG_PATH)
 
-    expected_cols = ["timestamp", "ip", "attack_type", "confidence", "action"]
+    expected_cols = ["timestamp", "ip", "attack_type", "confidence", "severity", "action"]
     data = data[[c for c in expected_cols if c in data.columns]]
     data = data.dropna(subset=["ip", "attack_type"])
-    data["timestamp"] = pd.to_datetime(data["timestamp"])
+    data["timestamp"]  = pd.to_datetime(data["timestamp"])
     data["confidence"] = pd.to_numeric(data["confidence"], errors="coerce")
 
     if not data.empty:
 
         # ── Summary Cards ──
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Attacks Detected", len(data))
-        col2.metric("Unique Attackers",        data["ip"].nunique())
-        col3.metric("Attack Types Found",      data["attack_type"].nunique())
-        col4.metric("Avg Confidence",          f"{data['confidence'].mean():.0%}")
+        blocked  = data[data["severity"] == "block"] if "severity" in data.columns else data
+        warnings = data[data["severity"] == "warning"] if "severity" in data.columns else pd.DataFrame()
+        alerts   = data[data["severity"] == "alert"] if "severity" in data.columns else pd.DataFrame()
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Events",     len(data))
+        col2.metric("Blocked",          len(blocked))
+        col3.metric("Alerts",           len(alerts))
+        col4.metric("Warnings",         len(warnings))
+        col5.metric("Avg Confidence",   f"{data['confidence'].mean():.0%}")
 
         st.divider()
 
-        # ── Recent Attacks Table ──
-        st.subheader("Recent Attacks")
-        st.markdown("Showing the last 20 detected attacks on your network:")
+        # ── Severity Filter ──
+        st.subheader("Event Log")
+        st.markdown("Filter events by severity level:")
 
-        display_data = data.tail(20).copy().sort_values("timestamp", ascending=False)
+        severity_filter = st.selectbox(
+            "Show:",
+            ["All Events", "Block", "Alert", "Warning"]
+        )
+
+        filtered = data.copy()
+        if severity_filter != "All Events" and "severity" in data.columns:
+            filtered = data[data["severity"] == severity_filter.lower()]
+
+        display_data = filtered.tail(20).copy().sort_values("timestamp", ascending=False)
         display_data["confidence"] = display_data["confidence"].apply(
             lambda x: f"{x:.0%}" if pd.notnull(x) else "—"
         )
-        display_data["action"] = display_data["action"].apply(
-            lambda x: "Blocked" if x == "blocked" else "Already Blocked"
-        )
+
+        if "severity" in display_data.columns:
+            display_data["severity"] = display_data["severity"].apply(
+                lambda x: "Block" if x == "block" else "Alert" if x == "alert" else "Warning"
+            )
+
+        if "action" in display_data.columns:
+            display_data["action"] = display_data["action"].apply(
+                lambda x: "Blocked" if x == "blocked" else
+                          "Already Blocked" if x == "already_blocked" else
+                          "Warned" if x == "warned" else
+                          "Already Warned" if x == "already_warned" else x
+            )
+
         display_data = display_data.rename(columns={
             "timestamp":   "Time",
             "ip":          "Attacker IP",
             "attack_type": "Attack Type",
             "confidence":  "Confidence",
+            "severity":    "Severity",
             "action":      "Action Taken"
         })
 
@@ -72,14 +98,21 @@ if os.path.exists(LOG_PATH):
 
         st.divider()
 
+        # ── Severity Breakdown ──
+        if "severity" in data.columns:
+            st.subheader("Severity Breakdown")
+            st.markdown("Distribution of events by severity level:")
+            st.bar_chart(data["severity"].value_counts())
+            st.divider()
+
         # ── Attack Trend ──
-        st.subheader("Attack Frequency Over Time")
-        st.markdown("This graph shows when attacks happened and how many occurred per minute:")
+        st.subheader("Event Frequency Over Time")
+        st.markdown("Number of events detected per minute:")
 
         attacks_per_min = (
             data.groupby(pd.Grouper(key="timestamp", freq="1Min"))
             .size()
-            .reset_index(name="Number of Attacks")
+            .reset_index(name="Number of Events")
         )
         st.line_chart(attacks_per_min.set_index("timestamp"))
 
@@ -89,7 +122,7 @@ if os.path.exists(LOG_PATH):
 
         with col1:
             st.subheader("Top Attacking IPs")
-            st.markdown("Which IP addresses attacked the most:")
+            st.markdown("IP addresses with the highest event count:")
             st.bar_chart(data["ip"].value_counts().head(10))
 
         with col2:
@@ -101,14 +134,37 @@ if os.path.exists(LOG_PATH):
 
         # ── Blocked IPs ──
         st.subheader("Blocked Attackers")
-        st.markdown("These IP addresses have been automatically blocked by the system:")
+        st.markdown("IP addresses automatically blocked by the system:")
 
-        blocked = data["ip"].unique()
-        blocked_df = pd.DataFrame(blocked, columns=["Blocked IP Address"])
-        st.dataframe(blocked_df, width="stretch", hide_index=True)
+        if "severity" in data.columns:
+            blocked_ips = data[data["severity"] == "block"]["ip"].unique()
+        else:
+            blocked_ips = data["ip"].unique()
+
+        if len(blocked_ips) > 0:
+            blocked_df = pd.DataFrame(blocked_ips, columns=["Blocked IP Address"])
+            st.dataframe(blocked_df, width="stretch", hide_index=True)
+        else:
+            st.info("No IPs blocked yet.")
+
+        st.divider()
+
+        # ── Warned IPs ──
+        st.subheader("Warned IPs")
+        st.markdown("IP addresses flagged as suspicious but not yet blocked:")
+
+        if "severity" in data.columns:
+            warned_ips = data[data["severity"].isin(["warning", "alert"])]["ip"].unique()
+            warned_ips = [ip for ip in warned_ips if ip not in blocked_ips]
+
+            if len(warned_ips) > 0:
+                warned_df = pd.DataFrame(warned_ips, columns=["Suspicious IP Address"])
+                st.dataframe(warned_df, width="stretch", hide_index=True)
+            else:
+                st.info("No IPs in warning state.")
 
     else:
-        st.info("System is running but no attacks detected yet.")
+        st.info("System is running but no events detected yet.")
 
 else:
     st.info("Monitoring not started yet. Run monitor.py to begin.")

@@ -3,6 +3,7 @@ monitor.py
 Real-time network packet capture and intrusion detection.
 Loads the trained weighted ensemble model and classifies
 every live packet as normal or an attack.
+Implements 3-level escalation: warning → alert → block
 """
 
 import os
@@ -13,7 +14,7 @@ from preprocessing import preprocess_input
 from traffic_analyzer import analyze_traffic
 from feature_engineer import extract_features
 from logger import initialize_log, log_attack
-from prevention import block_ip
+from prevention import handle_ip
 
 # ─── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,11 @@ if not os.path.exists(MODEL_PATH):
 model = joblib.load(MODEL_PATH)
 print("[INFO] Weighted Ensemble model loaded successfully")
 
+# ─── Attack Detection Threshold ───────────────────────────────────────
+# Lowered from default 0.5 to reduce missed attacks (False Negatives)
+# For IDS, missing an attack is more dangerous than a false alarm
+ATTACK_THRESHOLD = 0.40
+
 # ─── Initialize Log File ──────────────────────────────────────────────
 initialize_log()
 
@@ -36,7 +42,7 @@ def process_packet(packet):
     """
     Callback function triggered for every captured packet.
     Extracts features, runs ML prediction, and responds
-    if an attack is detected.
+    based on severity level.
     """
     try:
         if packet.haslayer(IP):
@@ -49,8 +55,7 @@ def process_packet(packet):
             packet_features = extract_features(packet)
 
             # Step 2 — Analyze traffic patterns over sliding time window
-            # Pass service, dst_ip and flag for richer rate-based features
-            features, attack_type = analyze_traffic(
+            features, attack_type, severity = analyze_traffic(
                 ip            = src_ip,
                 packet_length = packet_length,
                 service       = packet_features.get("service", 0),
@@ -58,32 +63,52 @@ def process_packet(packet):
                 flag          = packet_features.get("flag", 0)
             )
 
-            # Step 3 — Merge packet-level features into analyzer features
-            # packet_features override analyzer defaults where available
-            features.update(packet_features)
+            # Step 3 — Merge features correctly
+            # Start with packet_features as base
+            # Then overlay analyzer features on top
+            # This prevents packet_features from overwriting
+            # count, rates etc with 0
+            merged   = packet_features.copy()
+            merged.update(features)
+            features = merged
 
             # Step 4 — Preprocess into 41-column feature vector
             feature_vector = preprocess_input(features)
 
-            # Step 5 — Weighted ensemble prediction
-            prediction = model.predict(feature_vector)[0]
+            # Step 5 — Get probability scores from ensemble
+            proba        = model.predict_proba(feature_vector)[0]
+            attack_proba = proba[1]
 
-            # Step 6 — Confidence score (max probability across classes)
-            confidence = round(model.predict_proba(feature_vector)[0].max(), 4)
+            # Step 6 — Apply optimized threshold
+            prediction = 1 if attack_proba >= ATTACK_THRESHOLD else 0
 
-            # Step 7 — Trigger if ML model OR rule-based detection fires
-            # Rule-based DoS threshold acts as safety net for sparse features
-            if prediction == 1 or attack_type is not None:
+            # Step 7 — Confidence score
+            confidence = round(max(proba), 4)
 
-                attack_label = attack_type if attack_type else "ml_intrusion"
+            # Step 8 — Determine final severity
+            # ML model can also escalate to block if prediction == 1
+            if prediction == 1 and severity is None:
+                severity    = "block"
+                attack_type = "ml_intrusion"
 
-                print(f"[ALERT] Attack from {src_ip} | Type: {attack_label} | Confidence: {confidence}")
+            # Step 9 — Respond based on severity level
+            if severity == "block":
+                print(f"[BLOCK]   Attack from {src_ip} | Type: {attack_type} | Confidence: {confidence}")
+                action = handle_ip(src_ip, "block")
+                log_attack(src_ip, attack_type, confidence, "block", action)
 
-                action = block_ip(src_ip)
-                log_attack(src_ip, attack_label, confidence, action)
+            elif severity == "alert":
+                print(f"[ALERT]   High traffic from {src_ip} | Type: {attack_type} | Confidence: {confidence}")
+                action = handle_ip(src_ip, "alert")
+                log_attack(src_ip, attack_type, confidence, "alert", action)
+
+            elif severity == "warning":
+                print(f"[WARNING] Suspicious traffic from {src_ip} | Confidence: {confidence}")
+                action = handle_ip(src_ip, "warning")
+                log_attack(src_ip, attack_type, confidence, "warning", action)
 
             else:
-                print(f"[OK]    Normal traffic from {src_ip} | Confidence: {confidence}")
+                print(f"[OK]      Normal traffic from {src_ip} | Confidence: {confidence}")
 
     except Exception as e:
         print(f"[ERROR] Failed to process packet: {e}")
@@ -93,9 +118,10 @@ def start_monitoring():
     """Start real-time packet sniffing."""
     print("\n" + "=" * 55)
     print("   Hybrid ML-IDS — Real-Time Monitoring Active")
-    print("   Model  : Weighted Soft Voting Ensemble")
-    print("   RF: 0.6 | SVM: 0.2 | LR: 0.2")
-    print("   Detection: ML Prediction + Rule-Based (DoS)")
+    print("   Model     : Weighted Soft Voting Ensemble")
+    print("   RF: 0.6   | SVM: 0.2 | LR: 0.2")
+    print(f"   Threshold : {ATTACK_THRESHOLD} (optimized)")
+    print("   Escalation: Warning → Alert → Block")
     print("=" * 55 + "\n")
     sniff(prn=process_packet, store=False)
 

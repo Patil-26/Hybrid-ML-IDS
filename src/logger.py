@@ -1,7 +1,8 @@
 """
 logger.py
-Handles attack event logging.
-Writes detected attacks to a CSV file for dashboard display.
+Handles attack event logging with severity levels.
+Writes detected attacks and warnings to a CSV file
+for dashboard display.
 """
 
 import os
@@ -23,14 +24,26 @@ def initialize_log():
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["timestamp", "ip", "attack_type", "confidence", "action"])
+            writer.writerow([
+                "timestamp",
+                "ip",
+                "attack_type",
+                "confidence",
+                "severity",
+                "action"
+            ])
 
 
-def log_attack(ip, attack_type, confidence, action):
+def log_attack(ip, attack_type, confidence, severity, action):
     """
-    Append a detected attack record to the log file.
-    Each record includes timestamp, IP, attack type,
-    model confidence score, and action taken.
+    Append a detected attack or warning record to the log file.
+    Each record includes timestamp, IP, attack type, model
+    confidence score, severity level and action taken.
+
+    Severity levels:
+    warning  — suspicious activity, monitoring
+    alert    — high traffic, likely attack
+    block    — confirmed attack, IP blocked
     """
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
@@ -39,5 +52,6 @@ def log_attack(ip, attack_type, confidence, action):
             str(ip),
             str(attack_type),
             str(confidence),
+            str(severity),
             str(action)
         ])
