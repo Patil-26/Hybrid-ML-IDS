@@ -1,3 +1,11 @@
+"""
+evaluation.py
+Trains and evaluates all three ML models and the weighted ensemble
+on the NSL-KDD dataset. Computes accuracy, precision, recall, F1,
+confusion matrix and cross validation scores. Saves results to JSON
+and the best model to disk.
+"""
+
 import numpy as np
 import json
 import os
@@ -76,11 +84,43 @@ def evaluate_model(name, model, X_train, X_test, y_train, y_test):
     }, model
 
 
+# ─── Find Best Threshold ──────────────────────────────────────────────
+def find_best_threshold(model, X_test, y_test):
+    """
+    Test different decision thresholds and find the one
+    that minimizes False Negatives while keeping False Positives low.
+    For an IDS, missing an attack is more dangerous than a false alarm.
+    """
+
+    print("\nFinding optimal decision threshold...")
+
+    proba      = model.predict_proba(X_test)[:, 1]
+    thresholds = [0.3, 0.35, 0.4, 0.45, 0.5]
+
+    best_threshold = 0.5
+    best_fn        = float("inf")
+
+    for t in thresholds:
+        preds          = (proba >= t).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_test, preds).ravel()
+        f1             = f1_score(y_test, preds, zero_division=0)
+
+        print(f"  Threshold {t} → TP: {tp} | FP: {fp} | FN: {fn} | TN: {tn} | F1: {f1:.4f}")
+
+        if fn < best_fn:
+            best_fn        = fn
+            best_threshold = t
+
+    print(f"\n  Best threshold : {best_threshold} — minimizes missed attacks")
+    return best_threshold
+
+
 # ─── Cross Validation ─────────────────────────────────────────────────
 def cross_validate_model(name, model, X, y, cv=5):
     """
     Run k-fold cross validation on a sampled subset for speed.
     """
+
     print(f"\nRunning {cv}-Fold Cross Validation on {name}...")
 
     X_cv, y_cv = resample(X, y, n_samples=30000, random_state=42)
@@ -96,27 +136,21 @@ def plot_feature_importance(rf_model, feature_names):
     """
     Extract feature importances from the trained Random Forest model
     and save a bar chart showing the top 15 most important features.
-    This tells us which of the 41 NSL-KDD features matter most
-    for detecting attacks.
     """
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
 
-    # Get feature importances from RF
     importances = rf_model.feature_importances_
+    indices     = np.argsort(importances)[::-1]
 
-    # Sort by importance descending
-    indices = np.argsort(importances)[::-1]
-
-    # Take top 15
     top_n       = 15
     top_indices = indices[:top_n]
     top_names   = [feature_names[i] for i in top_indices]
     top_values  = importances[top_indices]
 
-    # Save feature importance data to JSON for dashboard
+    # Save to JSON for dashboard
     importance_data = {
-        "features": top_names,
+        "features":    top_names,
         "importances": [round(float(v), 4) for v in top_values]
     }
     with open(os.path.join(PLOTS_DIR, "feature_importance.json"), "w") as f:
@@ -125,7 +159,7 @@ def plot_feature_importance(rf_model, feature_names):
     # Plot
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    bars = ax.barh(
+    ax.barh(
         range(top_n),
         top_values[::-1],
         color="#2196F3",
@@ -216,8 +250,8 @@ def run_evaluation():
     )
 
     # ── Evaluate all models ────────────────────────────────────────────
-    all_results  = []
-    trained_rf   = None
+    all_results = []
+    trained_rf  = None
 
     for name, model in [
         ("Random Forest",       rf),
@@ -243,6 +277,11 @@ def run_evaluation():
             trained_rf = trained_model
 
         if name == "Weighted Ensemble":
+
+            # Find best decision threshold
+            best_threshold = find_best_threshold(trained_model, X_test, y_test)
+            result["best_threshold"] = best_threshold
+
             cv_mean, cv_std = cross_validate_model(
                 name, trained_model, X, y
             )

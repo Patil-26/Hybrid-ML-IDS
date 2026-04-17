@@ -82,6 +82,7 @@
         "tn": 13408,
         "fp": 14,
         "fn": 48,
+        "best_threshold": 0.3,
         "cv_accuracy": 0.9968,
         "cv_std": 0.0008
     }
